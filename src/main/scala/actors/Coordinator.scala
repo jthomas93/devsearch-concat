@@ -6,6 +6,7 @@ import java.nio.file.{InvalidPathException, LinkOption, Files}
 import actors.Coordinator.{BlobResponse, FileResponse, Shutdown}
 import actors.Worker.{Finished, FileRequest, BlobRequest}
 import akka.actor.{ActorLogging, Actor, Props}
+import org.apache.commons.io.FileUtils
 import org.apache.tika.detect.TextDetector
 import org.apache.tika.Tika
 
@@ -24,11 +25,23 @@ case class Coordinator(langFolder: File, outputFolder: File, numWorkers: Int) ex
   var numFinished = 0
   val blobSize = (64L * 10L) << 20 // 640 Mb
 
-  def receive = {
+  var totalBytesProcessed = 0L
+  var startTime = 0L
+
+  override def preStart = {
+    startTime = System.currentTimeMillis
+  }
+
+  override def receive = {
     /* Worker is done doing its work */
     case Finished => {
       numFinished += 1
       if (numFinished == numWorkers) {
+        val timePassed = System.currentTimeMillis - startTime
+        val seconds = (timePassed / 1000f).formatted("%.2f")
+        val bytesString = FileUtils.byteCountToDisplaySize(totalBytesProcessed)
+        val throughput = FileUtils.byteCountToDisplaySize(totalBytesProcessed * 1000 / timePassed)
+        log.info(s"Shutting down, processed $bytesString in $seconds s ($throughput/s)")
         context.system.shutdown()
       }
     }
@@ -47,6 +60,7 @@ case class Coordinator(langFolder: File, outputFolder: File, numWorkers: Int) ex
           /* Resend request */
           self.!(FileRequest)(sender)
         } else {
+          totalBytesProcessed += head.length
           sender ! FileResponse(head)
         }
       /* If there are no more files, shutdown workers */
