@@ -40,8 +40,8 @@ case class Coordinator(langFolder: File, outputFolder: File, numWorkers: Int) ex
         val timePassed = System.currentTimeMillis - startTime
         val seconds = (timePassed / 1000f).formatted("%.2f")
         val bytesString = FileUtils.byteCountToDisplaySize(totalBytesProcessed)
-        val throughput = FileUtils.byteCountToDisplaySize(totalBytesProcessed * 1000 / timePassed)
-        log.info(s"Shutting down, processed $bytesString in $seconds s ($throughput/s)")
+        val throughput = FileUtils.byteCountToDisplaySize((totalBytesProcessed * 1000) / timePassed)
+        log.info(s"Shutting down, processed $bytesString ($totalBytesProcessed) in $seconds s ($throughput/s)")
         context.system.shutdown()
       }
     }
