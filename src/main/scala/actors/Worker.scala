@@ -1,12 +1,12 @@
 package actors
 
 import java.io._
+import java.nio.ByteBuffer
+import java.nio.channels.FileChannel
 
 import actors.Coordinator.{FileResponse, BlobResponse, Shutdown}
-import actors.Worker.{Finished, FileRequest, Begin, BlobRequest}
 import akka.actor.{ActorRef, Actor, ActorLogging, Props}
-
-import scala.concurrent.Future
+import scala.language.implicitConversions
 
 /**
  * The worker actor is the one in charge of creating the large
@@ -16,8 +16,10 @@ import scala.concurrent.Future
  */
 class Worker(master: ActorRef) extends Actor with ActorLogging {
 
+  import Worker._
+
   /* The stream we are currently writing in */
-  var currentStream = Option.empty[DataOutputStream]
+  var currentStream = Option.empty[FileChannel]
   var currentBlob = Option.empty[File]
 
   /* The maximum number of bytes we are allowed to write to the stream */
@@ -40,7 +42,7 @@ class Worker(master: ActorRef) extends Actor with ActorLogging {
       currentBlob = Some(file)
       maxSize = size
       bytesWritten = 0
-      currentStream = Some(new DataOutputStream(new FileOutputStream(file)))
+      currentStream = Some(new FileOutputStream(file).getChannel)
       tempFile.map(self ! FileResponse(_)).getOrElse(master ! FileRequest)
     }
 
@@ -66,12 +68,18 @@ class Worker(master: ActorRef) extends Actor with ActorLogging {
         bytesWritten += bytesToWrite
         tempFile = None
         assert(currentStream.isDefined)
-        currentStream.foreach { dos =>
-          dos.write(header)
-          val is = new FileInputStream(file)
-          Worker.copyBytes(is, dos)
-          is.close()
-          dos.write(separator)
+        currentStream.foreach { dst =>
+          dst.write(header)
+          val src = new FileInputStream(file).getChannel
+          var size = src.size
+          if(size != file.length) log.error(s"Problem with size : $size")
+          while(size > 0){
+            size -= dst.transferFrom(src, src.size - size, size)
+          }
+          dst.force(true)
+          src.force(true)
+          src.close()
+          dst.write(separator)
         }
         master ! FileRequest
       }
@@ -99,19 +107,6 @@ object Worker {
 
   case object Finished
 
-  /**
-   * Copy bytes from one input stream to an outputstream
-   *
-   * @param in The input stream from which to read bytes
-   * @param out The output stream to write bytes to
-   */
-  def copyBytes(in: InputStream, out: OutputStream): Unit = {
-    val buffer = new Array[Byte](1024)
-    var len = in.read(buffer)
-    while (len != -1) {
-      out.write(buffer, 0, len)
-      len = in.read(buffer)
-    }
-  }
-
+  /** Implicit definition to transform byte arrays to byte buffers */
+  implicit def byteArr2byteBuff(arr : Array[Byte]): ByteBuffer = ByteBuffer.wrap(arr)
 }
