@@ -13,5 +13,7 @@ libraryDependencies ++= Seq(
   "org.apache.commons" % "commons-io" % "1.3.2"
 )
 
+scalacOptions ++= Seq("-feature", "-unchecked", "-deprecation")
+
 resolvers += Resolver.sonatypeRepo("public")
 
